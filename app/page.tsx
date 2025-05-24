@@ -4,19 +4,87 @@ import { useState, useEffect, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Download, Heart } from "lucide-react";
+import { Download, Heart, Loader2 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { useAuth } from "@clerk/nextjs";
+import { SignInButton } from "@clerk/nextjs";
+import { createClient } from "@supabase/supabase-js";
+
+// Create Supabase client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+interface Cartoon {
+  id: number;
+  image_url: string;
+  prompt: string;
+  likes_count: number;
+  isLiked?: boolean;
+  isLoading?: boolean;
+  creator_user_id?: string;
+}
 
 export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [cartoons, setCartoons] = useState<Array<{ 
-    image: string; 
-    description: string; 
-    isLiked?: boolean;
-    likeCount: number;
-  }>>([]);
+  const [generatingPrompt, setGeneratingPrompt] = useState("");
+  const [loadingImages, setLoadingImages] = useState<Set<number>>(new Set());
+  const [cartoons, setCartoons] = useState<Cartoon[]>([]);
   const { toast } = useToast();
+  const { userId, getToken } = useAuth();
+
+  // Create user profile if needed
+  useEffect(() => {
+    const createUserProfile = async () => {
+      try {
+        if (userId) {
+          const response = await fetch('/api/auth/user', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ userId }),
+          });
+
+          if (!response.ok) {
+            console.error('Failed to create/get user profile');
+          }
+        }
+      } catch (error) {
+        console.error('Error creating user profile:', error);
+      }
+    };
+
+    createUserProfile();
+  }, [userId]);
+
+  // Load liked cartoons from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedCartoons = localStorage.getItem('likedCartoons');
+      if (savedCartoons) {
+        const parsed = JSON.parse(savedCartoons);
+        if (Array.isArray(parsed)) {
+          // Validate each item in the array
+          const validCartoons = parsed.filter(cartoon => 
+            cartoon && 
+            typeof cartoon === 'object' && 
+            typeof cartoon.image_url === 'string' &&
+            typeof cartoon.prompt === 'string' &&
+            typeof cartoon.id === 'number' && // Ensure ID exists and is a number
+            !isNaN(cartoon.id) && // Ensure ID is not NaN
+            cartoon.id > 0 // Ensure ID is positive
+          );
+          setCartoons(validCartoons);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading saved cartoons:', error);
+      localStorage.removeItem('likedCartoons');
+    }
+  }, []);
 
   // Helper function to safely store data in localStorage
   const safeLocalStorageSave = useCallback((key: string, data: any) => {
@@ -32,8 +100,11 @@ export default function Home() {
               const cleaned = parsed.filter(item => 
                 item && 
                 typeof item === 'object' && 
-                item.image && 
-                item.image.startsWith('data:image/')
+                typeof item.image_url === 'string' &&
+                typeof item.prompt === 'string' &&
+                typeof item.id === 'number' && // Ensure ID exists and is a number
+                !isNaN(item.id) && // Ensure ID is not NaN
+                item.id > 0 // Ensure ID is positive
               );
               localStorage.setItem(key, JSON.stringify(cleaned));
             }
@@ -70,29 +141,6 @@ export default function Home() {
     }
   }, []);
 
-  // Load liked cartoons from localStorage on mount
-  useEffect(() => {
-    try {
-      const savedCartoons = localStorage.getItem('likedCartoons');
-      if (savedCartoons) {
-        const parsed = JSON.parse(savedCartoons);
-        if (Array.isArray(parsed)) {
-          // Validate each item in the array
-          const validCartoons = parsed.filter(cartoon => 
-            cartoon && 
-            typeof cartoon === 'object' && 
-            typeof cartoon.image === 'string' &&
-            typeof cartoon.description === 'string'
-          );
-          setCartoons(validCartoons);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading saved cartoons:', error);
-      localStorage.removeItem('likedCartoons');
-    }
-  }, []);
-
   // Save cartoons to localStorage whenever they change
   useEffect(() => {
     const wasTrimmed = safeLocalStorageSave('likedCartoons', cartoons);
@@ -110,33 +158,123 @@ export default function Home() {
     }
   }, [cartoons, safeLocalStorageSave, toast]);
 
-  const handleLike = useCallback((index: number) => {
-    setCartoons(prev => {
-      const newCartoons = prev.map((cartoon, i) => {
-        if (i === index) {
-          const newLikeCount = cartoon.likeCount + (cartoon.isLiked ? -1 : 1);
-          return { 
-            ...cartoon, 
-            isLiked: !cartoon.isLiked,
-            likeCount: newLikeCount >= 0 ? newLikeCount : 0
-          };
+  // Fetch cartoons and like status
+  const fetchCartoons = useCallback(async () => {
+    try {
+      const { data: cartoons, error } = await supabase
+        .from('cartoons')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error("Error fetching cartoons:", error);
+        return;
+      }
+
+      let processedCartoons = cartoons.map(cartoon => ({
+        id: Number(cartoon.id),
+        image_url: cartoon.image_url,
+        prompt: cartoon.prompt,
+        likes_count: Number(cartoon.likes_count || 0),
+        creator_user_id: cartoon.creator_user_id,
+        isLiked: false
+      }));
+
+      if (userId) {
+        // Fetch user's likes
+        const { data: likes } = await supabase
+          .from('likes')
+          .select('cartoon_id, status')
+          .eq('liked_by', userId)
+          .eq('status', 1);
+
+        if (likes) {
+          const likedCartoonIds = new Set(likes.map(like => like.cartoon_id));
+          processedCartoons = processedCartoons.map(cartoon => ({
+            ...cartoon,
+            isLiked: likedCartoonIds.has(cartoon.id)
+          }));
         }
-        return cartoon;
+      }
+
+      console.log("Processed cartoons:", processedCartoons);
+      setCartoons(processedCartoons);
+    } catch (error) {
+      console.error("Error in fetchCartoons:", error);
+    }
+  }, [userId]);
+
+  // Fetch cartoons on mount and when userId changes
+  useEffect(() => {
+    fetchCartoons();
+  }, [fetchCartoons]);
+
+  const handleLike = async (cartoonId: number, currentLikeStatus: boolean) => {
+    if (!userId) {
+      toast({
+        title: "Authentication Required",
+        description: "Please sign in to like cartoons",
+        variant: "destructive",
       });
-      
-      const cartoon = newCartoons[index];
-      setTimeout(() => {
-        toast({
-          title: cartoon.isLiked ? "Removed from favorites" : "Added to favorites",
-          description: `Cartoon ${cartoon.isLiked ? "removed from" : "added to"} your favorites`
-        });
-      }, 0);
-      
-      return newCartoons;
-    });
-  }, [toast]);
+      return;
+    }
+
+    try {
+      console.log("Attempting to like cartoon:", { cartoonId, currentLikeStatus });
+      const response = await fetch("/api/likes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          cartoonId,
+          status: currentLikeStatus ? 0 : 1  // Toggle status: 0 for unlike, 1 for like
+        }),
+      });
+
+      const data = await response.json();
+      console.log("Like response:", data);
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update like status");
+      }
+
+      // Update local state
+      setCartoons(prev => prev.map(cartoon => 
+        cartoon.id === cartoonId
+          ? { 
+              ...cartoon, 
+              likes_count: data.likes_count,
+              isLiked: !currentLikeStatus
+            }
+          : cartoon
+      ));
+
+      toast({
+        title: "Success",
+        description: `Cartoon ${currentLikeStatus ? 'unliked' : 'liked'} successfully!`
+      });
+
+    } catch (error: any) {
+      console.error("Like operation failed:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update like status",
+        variant: "destructive",
+      });
+    }
+  };
 
   const generateCartoon = async () => {
+    if (!userId) {
+      toast({
+        title: "Authentication Required",
+        description: "Please sign in to generate cartoons",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!prompt) {
       toast({
         title: "Error",
@@ -147,56 +285,62 @@ export default function Home() {
     }
 
     setIsGenerating(true);
+    const tempId = Date.now();
+
+    // Add loading placeholder
+    setCartoons(prevCartoons => [
+      {
+        id: tempId,
+        image_url: "",
+        prompt: prompt,
+        likes_count: 0,
+        isLiked: false,
+        isLoading: true,
+        creator_user_id: userId
+      },
+      ...prevCartoons
+    ]);
+
     try {
-      console.log("Sending request with prompt:", prompt);
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
+          "Content-Type": "application/json"
         },
         body: JSON.stringify({ prompt }),
       });
 
-      console.log("Response status:", response.status);
       const data = await response.json();
-      console.log("Response data:", data);
-
-      if (data.error) {
-        throw new Error(data.error);
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to generate cartoon");
       }
 
-      if (!data.cartoons?.[0]) {
-        throw new Error("No cartoon was generated");
+      // Replace loading placeholder with actual cartoon
+      if (data.cartoonData) {
+        setCartoons(prevCartoons => prevCartoons.map(cartoon => 
+          cartoon.id === tempId
+            ? {
+                id: Number(data.cartoonData.id),
+                image_url: data.cartoonData.image_url,
+                prompt: data.cartoonData.prompt,
+                likes_count: 0,
+                isLiked: false,
+                creator_user_id: userId
+              }
+            : cartoon
+        ));
       }
 
-      // Validate the image data before saving
-      if (!data.cartoons[0].startsWith('data:image/')) {
-        throw new Error("Invalid image data received");
-      }
-
-      const newCartoon = {
-        image: data.cartoons[0],
-        description: data.description,
-        likeCount: 0
-      };
-      console.log("Adding new cartoon:", newCartoon);
-
-      setCartoons(prev => {
-        console.log("Previous cartoons:", prev);
-        const newCartoons = [newCartoon, ...prev];
-        console.log("New cartoons array:", newCartoons);
-        // Return trimmed array if too large
-        return newCartoons.length > 50 ? newCartoons.slice(0, 50) : newCartoons;
-      });
-
+      setPrompt("");
+      
       toast({
         title: "Success",
         description: "Cartoon generated successfully!"
       });
-      
-      setPrompt("");
     } catch (error: any) {
       console.error("Generation error:", error);
+      // Remove loading placeholder on error
+      setCartoons(prevCartoons => prevCartoons.filter(cartoon => cartoon.id !== tempId));
       toast({
         title: "Error",
         description: error.message || "Failed to generate cartoon",
@@ -213,6 +357,20 @@ export default function Home() {
     }
   };
 
+  // Handle image load complete
+  const handleImageLoad = (cartoonId: number) => {
+    setLoadingImages(prev => {
+      const next = new Set(prev);
+      next.delete(cartoonId);
+      return next;
+    });
+  };
+
+  // Handle start of image loading
+  const handleImageLoadStart = (cartoonId: number) => {
+    setLoadingImages(prev => new Set(prev).add(cartoonId));
+  };
+
   return (
     <main className="container mx-auto px-4 py-8">
       <h1 className="text-4xl font-bold text-center mb-8 flex items-center justify-center gap-2">
@@ -221,68 +379,103 @@ export default function Home() {
       </h1>
 
       <div className="max-w-xl mx-auto mb-12">
-        <div className="flex gap-2">
-          <Input
-            placeholder="Enter a prompt to generate a cartoon character"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={handleKeyPress}
-            className="flex-1"
-          />
-          <Button
-            onClick={generateCartoon}
-            disabled={isGenerating}
-          >
-            {isGenerating ? "Generating..." : "Generate"}
-          </Button>
-        </div>
+        {userId ? (
+          <div className="flex gap-2">
+            <Input
+              placeholder="Enter a prompt to generate a cartoon character"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={handleKeyPress}
+              className="flex-1"
+            />
+            <Button
+              onClick={generateCartoon}
+              disabled={isGenerating}
+            >
+              {isGenerating ? "Generating..." : "Generate"}
+            </Button>
+          </div>
+        ) : (
+          <div className="text-center">
+            <SignInButton mode="modal">
+              <Button variant="default">Sign in to Generate Cartoons</Button>
+            </SignInButton>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {cartoons.map((cartoon, index) => (
-          <Card key={index} className="relative group p-4">
+        {cartoons.map((cartoon) => (
+          <Card key={cartoon.id} className="relative group p-4">
             <div className="aspect-square relative mb-2">
-              <img
-                src={cartoon.image}
-                alt={`Generated cartoon for ${cartoon.description}`}
-                className="w-full h-full object-contain"
-              />
-              <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg flex items-center justify-center gap-4">
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="text-white hover:text-white hover:bg-white/20"
-                  onClick={() => {
-                    const link = document.createElement("a");
-                    link.href = cartoon.image;
-                    // Use the description (prompt) as the filename, sanitize it for valid filename
-                    const sanitizedName = cartoon.description
-                      .replace(/[^a-z0-9]/gi, '_') // Replace invalid chars with underscore
-                      .toLowerCase();
-                    link.download = `${sanitizedName}.png`;
-                    link.click();
-                  }}
-                >
-                  <Download className="h-6 w-6" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className={`text-white hover:text-white hover:bg-white/20 ${
-                    cartoon.isLiked ? 'text-red-500 hover:text-red-500' : ''
-                  }`}
-                  onClick={() => handleLike(index)}
-                >
-                  <Heart className={`h-6 w-6 ${cartoon.isLiked ? 'fill-current' : ''}`} />
-                </Button>
-              </div>
-              <div className="absolute bottom-2 right-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded-full text-sm flex items-center gap-1">
-                <Heart className="h-4 w-4" />
-                <span>{cartoon.likeCount}</span>
-              </div>
+              {cartoon.isLoading ? (
+                <div className="w-full h-full flex flex-col items-center justify-center bg-gray-100 rounded-lg p-4">
+                  <div className="text-center space-y-3">
+                    <Loader2 className="h-8 w-8 animate-spin mx-auto" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-gray-900">Generating image for:</p>
+                      <p className="text-sm text-gray-600 break-words">{cartoon.prompt}</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <img
+                    src={cartoon.image_url}
+                    alt={`Generated cartoon for ${cartoon.prompt}`}
+                    className="w-full h-full object-contain transition-opacity duration-300"
+                    onLoadStart={() => handleImageLoadStart(cartoon.id)}
+                    onLoad={() => handleImageLoad(cartoon.id)}
+                    onError={() => handleImageLoad(cartoon.id)}
+                  />
+                  <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg flex items-center justify-center gap-4">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="text-white hover:text-white hover:bg-white/20"
+                      onClick={() => {
+                        const link = document.createElement("a");
+                        link.href = cartoon.image_url;
+                        const sanitizedName = cartoon.prompt
+                          .replace(/[^a-z0-9]/gi, '_')
+                          .toLowerCase();
+                        link.download = `${sanitizedName}.png`;
+                        link.click();
+                      }}
+                    >
+                      <Download className="h-6 w-6" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className={`text-white hover:text-white hover:bg-white/20 ${
+                        cartoon.isLiked ? 'text-red-500 hover:text-red-500' : ''
+                      }`}
+                      onClick={() => {
+                        console.log("Like button clicked for cartoon:", cartoon);
+                        if (!cartoon.id || isNaN(cartoon.id) || cartoon.id <= 0) {
+                          toast({
+                            title: "Error",
+                            description: "Invalid cartoon ID",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+                        handleLike(cartoon.id, cartoon.isLiked || false);
+                      }}
+                    >
+                      <Heart className={`h-6 w-6 ${cartoon.isLiked ? 'fill-current' : ''}`} />
+                    </Button>
+                  </div>
+                  <div className="absolute bottom-2 right-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded-full text-sm flex items-center gap-1">
+                    <Heart className="h-4 w-4" />
+                    <span>{cartoon.likes_count}</span>
+                  </div>
+                </>
+              )}
             </div>
             <p className="text-center text-sm font-medium truncate">
-              {cartoon.description}
+              {cartoon.prompt}
             </p>
           </Card>
         ))}
