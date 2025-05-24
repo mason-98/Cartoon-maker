@@ -10,7 +10,7 @@ import { useToast } from "@/components/ui/use-toast";
 export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [emojis, setEmojis] = useState<Array<{ 
+  const [cartoons, setCartoons] = useState<Array<{ 
     image: string; 
     description: string; 
     isLiked?: boolean;
@@ -60,7 +60,7 @@ export default function Home() {
           const trimmedData = data.slice(0, 10);
           const trimmedSerialized = JSON.stringify(trimmedData);
           localStorage.setItem(key, trimmedSerialized);
-          setEmojis(trimmedData);
+          setCartoons(trimmedData);
           return true; // Indicate data was trimmed
         }
       }
@@ -70,32 +70,32 @@ export default function Home() {
     }
   }, []);
 
-  // Load liked emojis from localStorage on mount
+  // Load liked cartoons from localStorage on mount
   useEffect(() => {
     try {
-      const savedEmojis = localStorage.getItem('likedEmojis');
-      if (savedEmojis) {
-        const parsed = JSON.parse(savedEmojis);
+      const savedCartoons = localStorage.getItem('likedCartoons');
+      if (savedCartoons) {
+        const parsed = JSON.parse(savedCartoons);
         if (Array.isArray(parsed)) {
           // Validate each item in the array
-          const validEmojis = parsed.filter(emoji => 
-            emoji && 
-            typeof emoji === 'object' && 
-            typeof emoji.image === 'string' &&
-            typeof emoji.description === 'string'
+          const validCartoons = parsed.filter(cartoon => 
+            cartoon && 
+            typeof cartoon === 'object' && 
+            typeof cartoon.image === 'string' &&
+            typeof cartoon.description === 'string'
           );
-          setEmojis(validEmojis);
+          setCartoons(validCartoons);
         }
       }
     } catch (error) {
       console.error('Error loading saved cartoons:', error);
-      localStorage.removeItem('likedEmojis');
+      localStorage.removeItem('likedCartoons');
     }
   }, []);
 
-  // Save emojis to localStorage whenever they change
+  // Save cartoons to localStorage whenever they change
   useEffect(() => {
-    const wasTrimmed = safeLocalStorageSave('likedEmojis', emojis);
+    const wasTrimmed = safeLocalStorageSave('likedCartoons', cartoons);
     if (wasTrimmed === true) {
       toast({
         title: "Storage limit reached",
@@ -108,35 +108,35 @@ export default function Home() {
         variant: "destructive"
       });
     }
-  }, [emojis, safeLocalStorageSave, toast]);
+  }, [cartoons, safeLocalStorageSave, toast]);
 
   const handleLike = useCallback((index: number) => {
-    setEmojis(prev => {
-      const newEmojis = prev.map((emoji, i) => {
+    setCartoons(prev => {
+      const newCartoons = prev.map((cartoon, i) => {
         if (i === index) {
-          const newLikeCount = emoji.likeCount + (emoji.isLiked ? -1 : 1);
+          const newLikeCount = cartoon.likeCount + (cartoon.isLiked ? -1 : 1);
           return { 
-            ...emoji, 
-            isLiked: !emoji.isLiked,
+            ...cartoon, 
+            isLiked: !cartoon.isLiked,
             likeCount: newLikeCount >= 0 ? newLikeCount : 0
           };
         }
-        return emoji;
+        return cartoon;
       });
       
-      const emoji = newEmojis[index];
+      const cartoon = newCartoons[index];
       setTimeout(() => {
         toast({
-          title: emoji.isLiked ? "Removed from favorites" : "Added to favorites",
-          description: `Emoji ${emoji.isLiked ? "removed from" : "added to"} your favorites`
+          title: cartoon.isLiked ? "Removed from favorites" : "Added to favorites",
+          description: `Cartoon ${cartoon.isLiked ? "removed from" : "added to"} your favorites`
         });
       }, 0);
       
-      return newEmojis;
+      return newCartoons;
     });
   }, [toast]);
 
-  const generateEmoji = async () => {
+  const generateCartoon = async () => {
     if (!prompt) {
       toast({
         title: "Error",
@@ -181,12 +181,12 @@ export default function Home() {
       };
       console.log("Adding new cartoon:", newCartoon);
 
-      setEmojis(prev => {
-        console.log("Previous emojis:", prev);
-        const newEmojis = [newCartoon, ...prev];
-        console.log("New emojis array:", newEmojis);
+      setCartoons(prev => {
+        console.log("Previous cartoons:", prev);
+        const newCartoons = [newCartoon, ...prev];
+        console.log("New cartoons array:", newCartoons);
         // Return trimmed array if too large
-        return newEmojis.length > 50 ? newEmojis.slice(0, 50) : newEmojis;
+        return newCartoons.length > 50 ? newCartoons.slice(0, 50) : newCartoons;
       });
 
       toast({
@@ -209,7 +209,7 @@ export default function Home() {
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !isGenerating) {
-      generateEmoji();
+      generateCartoon();
     }
   };
 
@@ -230,7 +230,7 @@ export default function Home() {
             className="flex-1"
           />
           <Button
-            onClick={generateEmoji}
+            onClick={generateCartoon}
             disabled={isGenerating}
           >
             {isGenerating ? "Generating..." : "Generate"}
@@ -239,12 +239,12 @@ export default function Home() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {emojis.map((emoji, index) => (
+        {cartoons.map((cartoon, index) => (
           <Card key={index} className="relative group p-4">
             <div className="aspect-square relative mb-2">
               <img
-                src={emoji.image}
-                alt={`Generated emoji for ${emoji.description}`}
+                src={cartoon.image}
+                alt={`Generated cartoon for ${cartoon.description}`}
                 className="w-full h-full object-contain"
               />
               <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg flex items-center justify-center gap-4">
@@ -254,9 +254,9 @@ export default function Home() {
                   className="text-white hover:text-white hover:bg-white/20"
                   onClick={() => {
                     const link = document.createElement("a");
-                    link.href = emoji.image;
+                    link.href = cartoon.image;
                     // Use the description (prompt) as the filename, sanitize it for valid filename
-                    const sanitizedName = emoji.description
+                    const sanitizedName = cartoon.description
                       .replace(/[^a-z0-9]/gi, '_') // Replace invalid chars with underscore
                       .toLowerCase();
                     link.download = `${sanitizedName}.png`;
@@ -269,20 +269,20 @@ export default function Home() {
                   size="icon"
                   variant="ghost"
                   className={`text-white hover:text-white hover:bg-white/20 ${
-                    emoji.isLiked ? 'text-red-500 hover:text-red-500' : ''
+                    cartoon.isLiked ? 'text-red-500 hover:text-red-500' : ''
                   }`}
                   onClick={() => handleLike(index)}
                 >
-                  <Heart className={`h-6 w-6 ${emoji.isLiked ? 'fill-current' : ''}`} />
+                  <Heart className={`h-6 w-6 ${cartoon.isLiked ? 'fill-current' : ''}`} />
                 </Button>
               </div>
               <div className="absolute bottom-2 right-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded-full text-sm flex items-center gap-1">
                 <Heart className="h-4 w-4" />
-                <span>{emoji.likeCount}</span>
+                <span>{cartoon.likeCount}</span>
               </div>
             </div>
             <p className="text-center text-sm font-medium truncate">
-              {emoji.description}
+              {cartoon.description}
             </p>
           </Card>
         ))}

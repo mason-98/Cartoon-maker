@@ -51,7 +51,7 @@ export async function POST(req: Request): Promise<Response> {
 
 
 # Current File structure
-EMOJI-MAKER
+CARTOON-MAKER
 ├── .next
 ├── app
 │   ├── fonts

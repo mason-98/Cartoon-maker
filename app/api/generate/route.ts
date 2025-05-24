@@ -5,7 +5,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
 /**
- * API route for generating emoji-style images using Gemini AI model.
+ * API route for generating cartoon-style images using Gemini AI model.
  */
 export async function POST(req: Request) {
   try {
