@@ -15,10 +15,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
 
-    const { cartoonId, status } = await req.json();
-    console.log("Processing like action:", { cartoonId, status, userId });
+    const { imageURL, status } = await req.json();
+    console.log("Processing like action:", { imageURL, status, userId });
     
-    if (!cartoonId) {
+    if (!imageURL) {
       return NextResponse.json({ error: "Cartoon ID is required" }, { status: 400 });
     }
 
@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     const { data: cartoon, error: cartoonError } = await supabaseAdmin
       .from('cartoons')
       .select('*')
-      .eq('id', cartoonId)
+      .eq('image_url', imageURL)
       .single();
 
     console.log("Cartoon fetch result:", { cartoon, cartoonError });
@@ -44,37 +44,53 @@ export async function POST(req: Request) {
     const { data: existingLike, error: likeCheckError } = await supabaseAdmin
       .from('likes')
       .select('*')
-      .eq('cartoon_id', cartoonId)
+      .eq('cartoon_id', cartoon.cartoon_id)
       .eq('liked_by', userId)
       .single();
 
+    
     console.log("Existing like check:", { existingLike, likeCheckError });
 
-    const isLiking = status === 1;
+    const isLiking = !existingLike || existingLike.status === 0;
     const newLikeCount = isLiking ? (cartoon.likes_count + 1) : Math.max(0, cartoon.likes_count - 1);
 
-    // Update or insert like status
-    const { error: likeError } = await supabaseAdmin
-      .from('likes')
-      .upsert({
-        cartoon_id: cartoonId,
-        liked_by: userId,
-        status: status,
-        creator_user_id: cartoon.creator_user_id
-      }, {
-        onConflict: 'cartoon_id,liked_by'
-      });
+    console.log("Existing like:", { existingLike });
+    console.log("New like count:", { newLikeCount });
+    console.log("Is liking:", { isLiking });
 
-    if (likeError) {
-      console.error("Like error:", likeError);
-      return NextResponse.json({ error: "Failed to update like status" }, { status: 500 });
+    // Update or insert like status
+    if (!existingLike) {
+      const { error: likeError } = await supabaseAdmin
+      .from('likes')
+      .insert({
+        cartoon_id: cartoon.cartoon_id,
+        liked_by: userId,
+        status: +isLiking,
+        creator_user_id: cartoon.creator_user_id
+      });
+      if (likeError) {
+        console.error("Like error:", likeError);
+        return NextResponse.json({ error: "Failed to update like status" }, { status: 500 });
+      }
+    } else {
+      const { error: likeError } = await supabaseAdmin
+      .from('likes')
+      .update({
+        status: +isLiking})
+      .eq('like_id',existingLike.like_id);
+      if (likeError) {
+        console.error("Like error:", likeError);
+        return NextResponse.json({ error: "Failed to update like status" }, { status: 500 });
+      }
     }
+
+    console.log("Cartoon likes count:", { cartoon });
 
     // Update cartoon likes count
     const { error: updateError } = await supabaseAdmin
       .from('cartoons')
-      .update({ likes_count: newLikeCount })
-      .eq('id', cartoonId);
+      .update({ likes_count: Number(newLikeCount) })
+      .eq('cartoon_id', cartoon.cartoon_id);
 
     if (updateError) {
       console.error("Update error:", updateError);

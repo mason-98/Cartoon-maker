@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Download, Heart, Loader2 } from "lucide-react";
+import { Download, Heart, Loader2, Trash2 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@clerk/nextjs";
 import { SignInButton } from "@clerk/nextjs";
@@ -209,7 +209,7 @@ export default function Home() {
     fetchCartoons();
   }, [fetchCartoons]);
 
-  const handleLike = async (cartoonId: number, currentLikeStatus: boolean) => {
+  const handleLike = async (imageURL: String, currentLikeStatus: boolean) => {
     if (!userId) {
       toast({
         title: "Authentication Required",
@@ -220,14 +220,14 @@ export default function Home() {
     }
 
     try {
-      console.log("Attempting to like cartoon:", { cartoonId, currentLikeStatus });
+      console.log("Attempting to like cartoon:", { imageURL, currentLikeStatus });
       const response = await fetch("/api/likes", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          cartoonId,
+          imageURL,
           status: currentLikeStatus ? 0 : 1  // Toggle status: 0 for unlike, 1 for like
         }),
       });
@@ -241,7 +241,7 @@ export default function Home() {
 
       // Update local state
       setCartoons(prev => prev.map(cartoon => 
-        cartoon.id === cartoonId
+        cartoon.image_url === imageURL
           ? { 
               ...cartoon, 
               likes_count: data.likes_count,
@@ -260,6 +260,55 @@ export default function Home() {
       toast({
         title: "Error",
         description: error.message || "Failed to update like status",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDelete = async (imageURL: String) => {
+    if (!userId) {
+      toast({
+        title: "Authentication Required",
+        description: "Please sign in to delete cartoons",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      console.log("Attempting to delete cartoon:", { imageURL });
+      const response = await fetch("/api/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          imageURL
+        }),
+      });
+
+      const data = await response.json();
+      console.log("Delete response:", data);
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to delete cartoon");
+      }
+
+      // Update local state
+      setCartoons(prev => prev.filter(cartoon => 
+        cartoon.image_url !== imageURL
+      ));
+
+      toast({
+        title: "Success",
+        description: `Cartoon deleted successfully!`
+      });
+
+    } catch (error: any) {
+      console.error("Delete operation failed:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete cartoon",
         variant: "destructive",
       });
     }
@@ -453,7 +502,7 @@ export default function Home() {
                       }`}
                       onClick={() => {
                         console.log("Like button clicked for cartoon:", cartoon);
-                        if (!cartoon.id || isNaN(cartoon.id) || cartoon.id <= 0) {
+                        if (!cartoon.image_url) {
                           toast({
                             title: "Error",
                             description: "Invalid cartoon ID",
@@ -461,10 +510,29 @@ export default function Home() {
                           });
                           return;
                         }
-                        handleLike(cartoon.id, cartoon.isLiked || false);
+                        handleLike(cartoon.image_url, cartoon.isLiked || false);
                       }}
                     >
                       <Heart className={`h-6 w-6 ${cartoon.isLiked ? 'fill-current' : ''}`} />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="text-white hover:text-white hover:bg-white/20"
+                      onClick={() => {
+                        console.log("Delete button clicked for cartoon:", cartoon);
+                        if (!cartoon.image_url) {
+                          toast({
+                            title: "Error",
+                            description: "Invalid cartoon ID",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+                        handleDelete(cartoon.image_url);
+                      }}
+                    >
+                      <Trash2 className="h-6 w-6" />
                     </Button>
                   </div>
                   <div className="absolute bottom-2 right-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded-full text-sm flex items-center gap-1">
