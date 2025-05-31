@@ -9,6 +9,8 @@ import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@clerk/nextjs";
 import { SignInButton } from "@clerk/nextjs";
 import { createClient } from "@supabase/supabase-js";
+import { Filter } from "bad-words";
+
 
 // Create Supabase client
 const supabase = createClient(
@@ -331,6 +333,17 @@ export default function Home() {
       toast({
         title: "Error",
         description: "Please enter a prompt first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const filter = new Filter();
+
+    if (filter.isProfane(prompt)) {
+      toast({
+        title: "Error",
+        description: "Profanity detected in prompt",
         variant: "destructive",
       });
       return;
