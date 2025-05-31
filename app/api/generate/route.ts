@@ -76,7 +76,7 @@ async function uploadFile(userId: string, file: Blob | string, prompt: string) {
       .from('cartoons')
       .upload(filename, blob);
     
-    if (uploadError) {
+    if (!uploadData || uploadError) {
       throw new Error('Failed to upload image');
     }
 
@@ -157,15 +157,19 @@ export async function POST(req: Request) {
       cartoonData
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("API: Error:", error);
+    let errorMessage = "";
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    }
     return NextResponse.json(
       { 
         error: error instanceof Error 
           ? error.message 
           : "Failed to process request"
       },
-      { status: error.message === 'No credits remaining' ? 402 : 500 }
+      { status: errorMessage === 'No credits remaining' ? 402 : 500 }
     );
   }
 }

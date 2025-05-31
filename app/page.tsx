@@ -29,11 +29,10 @@ interface Cartoon {
 export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [generatingPrompt, setGeneratingPrompt] = useState("");
-  const [loadingImages, setLoadingImages] = useState<Set<number>>(new Set());
+  const [_loadingImages, setLoadingImages] = useState<Set<number>>(new Set());
   const [cartoons, setCartoons] = useState<Cartoon[]>([]);
   const { toast } = useToast();
-  const { userId, getToken } = useAuth();
+  const { userId } = useAuth();
 
   // Create user profile if needed
   useEffect(() => {
@@ -87,7 +86,7 @@ export default function Home() {
   }, []);
 
   // Helper function to safely store data in localStorage
-  const safeLocalStorageSave = useCallback((key: string, data: any) => {
+  const safeLocalStorageSave = useCallback((key: string, data: Cartoon[]) => {
     try {
       // First try to clear any invalid entries
       const cleanupStorage = () => {
@@ -109,7 +108,7 @@ export default function Home() {
               localStorage.setItem(key, JSON.stringify(cleaned));
             }
           }
-        } catch (e) {
+        } catch (_e) {
           // If cleanup fails, clear the storage
           localStorage.removeItem(key);
         }
@@ -120,13 +119,13 @@ export default function Home() {
         // Try to save normally first
         localStorage.setItem(key, serialized);
         return false; // Success, no trimming needed
-      } catch (storageError) {
+      } catch (_storageError) {
         // If initial save fails, try cleanup and retry
         cleanupStorage();
         try {
           localStorage.setItem(key, serialized);
           return false;
-        } catch (retryError) {
+        } catch (_retryError) {
           // If still fails, trim to last 10 items
           const trimmedData = data.slice(0, 10);
           const trimmedSerialized = JSON.stringify(trimmedData);
@@ -172,7 +171,7 @@ export default function Home() {
       }
 
       let processedCartoons = cartoons.map(cartoon => ({
-        id: Number(cartoon.id),
+        id: Number(cartoon.cartoon_id),
         image_url: cartoon.image_url,
         prompt: cartoon.prompt,
         likes_count: Number(cartoon.likes_count || 0),
@@ -255,11 +254,15 @@ export default function Home() {
         description: `Cartoon ${currentLikeStatus ? 'unliked' : 'liked'} successfully!`
       });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Like operation failed:", error);
+      let errorMessage = "";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
       toast({
         title: "Error",
-        description: error.message || "Failed to update like status",
+        description: errorMessage || "Failed to update like status",
         variant: "destructive",
       });
     }
@@ -278,7 +281,7 @@ export default function Home() {
     try {
       console.log("Attempting to delete cartoon:", { imageURL });
       const response = await fetch("/api/delete", {
-        method: "POST",
+        method: "DELETE",
         headers: {
           "Content-Type": "application/json"
         },
@@ -369,7 +372,7 @@ export default function Home() {
         setCartoons(prevCartoons => prevCartoons.map(cartoon => 
           cartoon.id === tempId
             ? {
-                id: Number(data.cartoonData.id),
+                id: Number(data.cartoonData.cartoon_id),
                 image_url: data.cartoonData.image_url,
                 prompt: data.cartoonData.prompt,
                 likes_count: 0,
@@ -501,7 +504,7 @@ export default function Home() {
                         cartoon.isLiked ? 'text-red-500 hover:text-red-500' : ''
                       }`}
                       onClick={() => {
-                        console.log("Like button clicked for cartoon:", cartoon);
+                        // console.log("Like button clicked for cartoon:", cartoon);
                         if (!cartoon.image_url) {
                           toast({
                             title: "Error",
@@ -520,7 +523,7 @@ export default function Home() {
                       variant="ghost"
                       className="text-white hover:text-white hover:bg-white/20"
                       onClick={() => {
-                        console.log("Delete button clicked for cartoon:", cartoon);
+                        // console.log("Delete button clicked for cartoon:", cartoon);
                         if (!cartoon.image_url) {
                           toast({
                             title: "Error",

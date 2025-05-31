@@ -8,7 +8,7 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export async function POST(req: Request) {
+export async function DELETE(req: Request) {
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -29,8 +29,6 @@ export async function POST(req: Request) {
       .eq('image_url', imageURL)
       .single();
 
-    console.log("Cartoon fetch result:", { cartoon, cartoonError });
-
     if (cartoonError || !cartoon) {
       console.error("Failed to fetch cartoon:", cartoonError);
       return NextResponse.json({ error: "Cartoon not found" }, { status: 404 });
@@ -47,11 +45,21 @@ export async function POST(req: Request) {
       .delete()
       .eq('cartoon_id', cartoon.cartoon_id);
 
+    if (deleteError) {
+      console.error("Failed to delete cartoon:", deleteError);
+      return NextResponse.json({ error: "Failed to delete cartoon" }, { status: 500 });
+    }
+
     // Delete the likes associated with the cartoon
     const { error: deleteLikesError } = await supabaseAdmin
       .from('likes')
       .delete()
       .eq('cartoon_id', cartoon.cartoon_id);
+
+    if (deleteLikesError) {
+      console.error("Failed to delete likes:", deleteLikesError);
+      return NextResponse.json({ error: "Failed to delete likes" }, { status: 500 });
+    }
 
     return NextResponse.json({ 
       success: true, 
@@ -59,9 +67,9 @@ export async function POST(req: Request) {
     });
 
   } catch (error) {
-    console.error("Like operation error:", error);
+    console.error("Delete operation error:", error);
     return NextResponse.json(
-      { error: "Failed to process like operation" },
+      { error: "Failed to process delete operation" },
       { status: 500 }
     );
   }

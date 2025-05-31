@@ -25,6 +25,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, profile: existingProfile });
     }
 
+    if (fetchError) {
+      console.error("Failed to fetch profile:", fetchError);
+      return NextResponse.json({ error: "Failed to fetch profile" }, { status: 500 });
+    }
+
     // Create new profile
     const { data: newProfile, error: insertError } = await supabase
       .from('profiles')
