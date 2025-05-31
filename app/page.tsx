@@ -208,7 +208,7 @@ export default function Home() {
     fetchCartoons();
   }, [fetchCartoons]);
 
-  const handleLike = async (imageURL: String, currentLikeStatus: boolean) => {
+  const handleLike = async (imageURL: string, currentLikeStatus: boolean) => {
     if (!userId) {
       toast({
         title: "Authentication Required",
@@ -268,7 +268,7 @@ export default function Home() {
     }
   };
 
-  const handleDelete = async (imageURL: String) => {
+  const handleDelete = async (imageURL: string) => {
     if (!userId) {
       toast({
         title: "Authentication Required",
